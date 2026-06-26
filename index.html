@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pakistan Intelligent Intercity Routing Engine</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; padding: 0; background-color: #f4f6f9; display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+        
+        /* Sidebar Control Panel */
+        .sidebar { width: 400px; min-width: 400px; background: white; padding: 25px; box-shadow: 4px 0 15px rgba(0,0,0,0.1); overflow-y: auto; z-index: 1000; height: 100%; }
+        h2 { margin-top: 0; color: #1e293b; border-bottom: 3px solid #10b981; padding-bottom: 10px; font-size: 22px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #475569; font-size: 14px; }
+        select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background: #f8fafc; }
+        
+        /* Weather Diagnostic Panel (Read-Only Layout) */
+        .weather-sync-panel { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
+        .weather-sync-title { font-size: 12px; font-weight: bold; color: #166534; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #bbf7d0; padding-bottom: 4px; }
+        .weather-metric-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: #334155; }
+        .weather-metric-row span { font-weight: bold; color: #0f172a; }
+
+        button { width: 100%; padding: 12px; background: #10b981; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
+        button:hover { background: #059669; }
+        
+        /* Dynamic Results Dashboard */
+        .results-box { margin-top: 25px; padding: 15px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; display: none; }
+        .results-box h3 { margin: 0 0 10px 0; color: #1e293b; font-size: 16px; }
+        .metric { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: #334155; }
+        .metric span { font-weight: bold; color: #0f172a; }
+        
+        /* Interactive Map Canvas */
+        #map { flex-grow: 1; height: 100%; width: 100%; background-color: #e5e7eb; }
+        .loader { display: none; text-align: center; color: #10b981; font-weight: bold; margin-top: 10px; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>AI Routing Agent</h2>
+        
+        <div class="form-group">
+            <label>Origin Hub</label>
+            <select id="origin_city">
+                <option value="Faisalabad" selected>Faisalabad</option>
+                <option value="Lahore">Lahore</option>
+                <option value="Karachi">Karachi</option>
+                <option value="Islamabad">Islamabad</option>
+                <option value="Multan">Multan</option>
+                <option value="Peshawar">Peshawar</option>
+                <option value="Rawalpindi">Rawalpindi</option>
+                <option value="Quetta">Quetta</option>
+                <option value="Sargodha">Sargodha</option>
+                <option value="Sialkot City">Sialkot City</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Destination Hub</label>
+            <select id="destination_city">
+                <option value="Lahore" selected>Lahore</option>
+                <option value="Faisalabad">Faisalabad</option>
+                <option value="Karachi">Karachi</option>
+                <option value="Islamabad">Islamabad</option>
+                <option value="Multan">Multan</option>
+                <option value="Peshawar">Peshawar</option>
+                <option value="Rawalpindi">Rawalpindi</option>
+                <option value="Quetta">Quetta</option>
+                <option value="Sargodha">Sargodha</option>
+                <option value="Sialkot City">Sialkot City</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Transit Infrastructure</label>
+            <select id="highway_type">
+                <option value="Motorway">Motorway (M-Tag Required)</option>
+                <option value="National_Highway">National Highway (N-Series)</option>
+            </select>
+        </div>
+
+        <div class="weather-sync-panel">
+            <div class="weather-sync-title">🛰️ Live API Environmental Metrics</div>
+            
+            <div class="weather-metric-row">
+                <div>Ambient Temp:</div>
+                <div id="display_temp">Loading...</div>
+            </div>
+
+            <div class="weather-metric-row">
+                <div>Relative Humidity:</div>
+                <div id="display_humidity">Loading...</div>
+            </div>
+
+            <div class="weather-metric-row">
+                <div>Precipitation Profile:</div>
+                <div id="display_rain" style="text-transform: uppercase; color: #166534;">Loading...</div>
+            </div>
+        </div>
+
+        <button onclick="calculateAiRoute()">Generate AI Optimization</button>
+        <div id="loader" class="loader">Querying Real-Time Metrics &amp; XGBoost...</div>
+
+        <div id="results" class="results-box">
+            <h3>Prediction Core Metrics</h3>
+            <div class="metric">Calculated Distance: <span id="res_dist">-</span></div>
+            <div class="metric">Predicted Travel Time: <span id="res_time" style="color: #b91c1c;">-</span></div>
+            <div class="metric">Estimated Toll (NHA): <span id="res_toll" style="color: #2563eb;">-</span></div>
+            <div class="metric">Estimated Fuel Cost: <span id="res_fuel" style="color: #ea580c;">-</span></div>
+            <div class="metric">Inference Status: <span style="color: #15803d;">Active (200 OK)</span></div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+        // --- PRESERVED ACTIVE ACCESS KEY ---
+        const OPENWEATHER_API_KEY = "f1ca5d44a83949f4ef6a4f98130fa255";
+        
+        // Configuration: Update this if your backend uses a different host or HTTPS port
+        const BACKEND_API_URL = "http://127.0.0.1:8000/api/predict-route";
+
+        // Global variables holding the live data fetched strictly through the API
+        let apiFetchedTemp = 34.0;
+        let apiFetchedHumidity = 50;
+        let apiFetchedRain = "none";
+
+        // Initialize OpenStreetMap Canvas centered geographically over Pakistan
+        const map = L.map('map').setView([30.3753, 69.3451], 6);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        // Force Leaflet to recalculate rendering container geometry bounds immediately
+        setTimeout(() => { map.invalidateSize(); }, 200);
+
+        let activeRouteLine = null;
+        let markersGroup = L.layerGroup().addTo(map);
+
+        // Fixed Precision Coordinates Dictionary for Pakistan Intercity Nodes
+        const cityCoordinates = {
+            "Lahore": [31.5204, 74.3587], 
+            "Karachi": [24.8607, 67.0011], 
+            "Islamabad": [33.6844, 73.0479],
+            "Faisalabad": [31.4504, 73.1350], 
+            "Multan": [30.1575, 71.5249], 
+            "Peshawar": [34.0151, 71.5785],  // <-- FIXED COPY-PASTE LONGITUDE TYPO HERE
+            "Rawalpindi": [33.5651, 73.0169], 
+            "Quetta": [30.1798, 66.9750], 
+            "Sargodha": [32.0836, 72.6711],
+            "Sialkot City": [32.4945, 74.5229]
+        };
+
+        // Watch changes to the Origin dropdown to automatically trigger weather updates
+        document.getElementById('origin_city').addEventListener('change', fetchLiveWeatherBaseline);
+
+        // Auto-loads actual environmental values strictly from OpenWeather API
+        async function fetchLiveWeatherBaseline() {
+            const origin = document.getElementById('origin_city').value;
+            const startCoords = cityCoordinates[origin];
+            if (!startCoords) return;
+
+            // Set UI to loading state during network transit
+            document.getElementById('display_temp').innerText = "Updating...";
+            document.getElementById('display_humidity').innerText = "Updating...";
+            document.getElementById('display_rain').innerText = "Updating...";
+
+            try {
+                const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${startCoords[0]}&lon=${startCoords[1]}&units=metric&appid=${OPENWEATHER_API_KEY}`;
+                const weatherResponse = await fetch(weatherUrl);
+                
+                if (weatherResponse.ok) {
+                    const weatherData = await weatherResponse.json();
+                    
+                    // Store directly into our calculation variables
+                    apiFetchedTemp = parseFloat(weatherData.main.temp);
+                    apiFetchedHumidity = parseInt(weatherData.main.humidity);
+                    apiFetchedRain = parseRainIntensity(weatherData.weather);
+
+                    // Update the clean read-only display interface labels
+                    document.getElementById('display_temp').innerHTML = `<span>${apiFetchedTemp.toFixed(1)} °C</span>`;
+                    document.getElementById('display_humidity').innerHTML = `<span>${apiFetchedHumidity} %</span>`;
+                    document.getElementById('display_rain').innerHTML = `<span>${apiFetchedRain}</span>`;
+                } else {
+                    throw new Error(`HTTP network error fallback status: ${weatherResponse.status}`);
+                }
+            } catch (err) {
+                console.warn("Unable to fetch live baseline metrics. Using fallback constants.", err);
+                document.getElementById('display_temp').innerText = "34.0 °C (Fallback)";
+                document.getElementById('display_humidity').innerText = "50 % (Fallback)";
+                document.getElementById('display_rain').innerText = "NONE (Fallback)";
+            }
+        }
+
+        function getCurrentSeasonAndMonth() {
+            const currentObj = new Date();
+            const monthIndex = currentObj.getMonth() + 1;
+            let seasonString = "Summer";
+
+            if (monthIndex === 12 || monthIndex === 1 || monthIndex === 2) {
+                seasonString = "Winter";
+            } else if (monthIndex >= 3 && monthIndex <= 5) {
+                seasonString = "Spring";
+            } else if (monthIndex >= 6 && monthIndex <= 8) {
+                seasonString = "Summer";
+            } else if (monthIndex >= 9 && monthIndex <= 11) {
+                seasonString = "Autumn";
+            }
+            return { month: monthIndex, season: seasonString };
+        }
+
+        function parseRainIntensity(weatherArray) {
+            if (!weatherArray || weatherArray.length === 0) return "none";
+            const mainWeather = weatherArray[0].main.toLowerCase();
+            const description = weatherArray[0].description.toLowerCase();
+
+            if (mainWeather === "rain" || mainWeather === "drizzle") {
+                if (description.includes("light") || description.includes("drizzle")) return "light";
+                if (description.includes("heavy") || description.includes("extreme") || description.includes("monsoon")) return "heavy";
+                return "moderate";
+            }
+            return "none";
+        }
+
+        // Trigger automatic lookup on page load for the default selected city (Faisalabad)
+        window.addEventListener('DOMContentLoaded', fetchLiveWeatherBaseline);
+
+        async function calculateAiRoute() {
+            const origin = document.getElementById('origin_city').value;
+            const destination = document.getElementById('destination_city').value;
+            const highwaySelected = document.getElementById('highway_type').value;
+
+            if (origin === destination) {
+                alert("Validation Warning: Origin hub and Destination hub cannot be the same city.");
+                return;
+            }
+
+            const loader = document.getElementById('loader');
+            const resultsBox = document.getElementById('results');
+            
+            loader.style.display = 'block';
+            resultsBox.style.display = 'none';
+
+            const startCoords = cityCoordinates[origin];
+            const endCoords = cityCoordinates[destination];
+            
+            const dateContext = getCurrentSeasonAndMonth();
+
+            // --- DISPATCH DATA CORES COLLECTED DIRECTLY VIA OPENWEATHER API ---
+            const payload = {
+                origin_city: origin,
+                destination_city: destination,
+                highway_type: highwaySelected,
+                month: dateContext.month,
+                season: dateContext.season,
+                average_temp: apiFetchedTemp,
+                humidity: apiFetchedHumidity,
+                rainfall_intensity: apiFetchedRain
+            };
+
+            try {
+                const response = await fetch(BACKEND_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({ detail: "Unknown Server Exception Instance" }));
+                    alert("Routing Error from FastAPI: " + (errData.detail || response.statusText));
+                    loader.style.display = 'none';
+                    return;
+                }
+
+                const data = await response.json();
+                
+                // Fallback structure check if backend outputs standard raw key values directly
+                const distanceKm = parseFloat(data.calculated_distance_km || data.distance_km || 0);
+                
+                // --- FINANCIAL CALCULATIONS (NHA TOLL LOGIC MAPPED) ---
+                let estimatedToll = "Rs. 0";
+                if (highwaySelected === "Motorway") {
+                    if ((origin === "Lahore" && destination === "Islamabad") || (origin === "Islamabad" && destination === "Lahore")) {
+                        estimatedToll = "Rs. 1,330 (M-2 Car Base)";
+                    } else {
+                        estimatedToll = "Rs. 850 (M-Pass Est.)";
+                    }
+                } else {
+                    estimatedToll = "Rs. 0 (National Highway N-Series)";
+                }
+
+                // --- LIVE FUEL LOGISTICS MATHEMATICS ---
+                const currentFuelPrice = 373.78; 
+                const highwayFuelEconomyKml = 12.0; 
+                const totalFuelNeededLiters = distanceKm / highwayFuelEconomyKml;
+                const totalCalculatedFuelCost = totalFuelNeededLiters * currentFuelPrice;
+                
+                // --- UPDATE FRONTEND INTERFACE ---
+                document.getElementById('res_dist').innerText = distanceKm.toFixed(1) + " KM";
+                
+                if (data.predicted_travel_time && typeof data.predicted_travel_time === 'object') {
+                    document.getElementById('res_time').innerText = data.predicted_travel_time.formatted_hours + " Hours (" + data.predicted_travel_time.total_minutes + " mins)";
+                } else {
+                    const rawHours = parseFloat(data.predicted_travel_time || 0);
+                    const totalMins = Math.round(rawHours * 60);
+                    const displayHrs = Math.floor(totalMins / 60);
+                    const displayMins = totalMins % 60;
+                    document.getElementById('res_time').innerText = `${displayHrs}h ${displayMins}m (${totalMins} mins)`;
+                }
+                
+                document.getElementById('res_toll').innerText = estimatedToll;
+                document.getElementById('res_fuel').innerText = "Rs. " + Math.round(totalCalculatedFuelCost).toLocaleString();
+                
+                loader.style.display = 'none';
+                resultsBox.style.display = 'block';
+
+                markersGroup.clearLayers();
+                if (activeRouteLine) map.removeLayer(activeRouteLine);
+
+                if(startCoords && endCoords) {
+                    // Draw markers safely onto the canvas
+                    L.marker(startCoords).addTo(markersGroup).bindPopup("<b>Origin:</b> " + payload.origin_city).openPopup();
+                    L.marker(endCoords).addTo(markersGroup).bindPopup("<b>Destination:</b> " + payload.destination_city);
+
+                    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${startCoords[1]},${startCoords[0]};${endCoords[1]},${endCoords[0]}?overview=full&geometries=geojson`;
+
+                    try {
+                        const osrmResponse = await fetch(osrmUrl);
+                        const osrmData = await osrmResponse.json();
+
+                        if (osrmData.code === 'Ok' && osrmData.routes.length > 0) {
+                            const roadCoordinates = osrmData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                            activeRouteLine = L.polyline(roadCoordinates, {color: '#10b981', weight: 5, opacity: 0.85}).addTo(map);
+                        } else {
+                            activeRouteLine = L.polyline([startCoords, endCoords], {color: '#ef4444', weight: 5, dashArray: '5, 10', opacity: 0.8}).addTo(map);
+                        }
+                    } catch (osrmErr) {
+                        activeRouteLine = L.polyline([startCoords, endCoords], {color: '#f59e0b', weight: 5, opacity: 0.8}).addTo(map);
+                    }
+
+                    // Re-orient the map window to wrap exactly around the new path bounds
+                    map.fitBounds(activeRouteLine.getBounds(), {padding: [50, 50]});
+                }
+
+            } catch (error) {
+                console.error("Backend dispatch process failure:", error);
+                alert("Cannot connect to your local FastAPI backend! Verification checklist:\n1. Is your server running at 127.0.0.1:8000?\n2. Did you enable CORSMiddleware in your FastAPI initialization script?");
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
